@@ -7,6 +7,8 @@ snare = dsp.read('snds/snare.wav').data
 snare = dsp.amp(snare, 4)
 snare = dsp.env(snare, 'phasor')
 
+snarex = dsp.split(snare, 0, 1)
+
 changes = [
     [3,6,9],
     [3,7,9],
@@ -15,7 +17,7 @@ changes = [
 
 # tempo path
 def tempoPath(nsegs):
-    maxms = dsp.rand(20, 600)
+    maxms = dsp.rand(80, 400)
     minms = maxms / dsp.rand(2, 10)
     wavetypes = ['hann', 'sine', 'vary']
 
@@ -53,13 +55,28 @@ def parseBeat(pattern, lengths, callback):
         else:
             out += dsp.pad('', 0, length)
 
+    assert dsp.flen(out) == sum(lengths)
+
     return out
+
+def makeHat(length, i):
+    h = dsp.bln(length / 4, 8000, 12000)
+    h = dsp.env(h, 'phasor')
+    h = dsp.fill(h, length, silence=True)
+
+    return h
 
 def makeKick(length, i):
     return dsp.taper(dsp.fill(bigkick, length, silence=True), 40)
 
 def makeSnare(length, i):
-    return dsp.taper(dsp.fill(snare, length, silence=True), 40)
+    s = dsp.transpose(snare, dsp.rand(0.9, 1.1))
+    if dsp.rand() > 0.5:
+        s = dsp.mix([s, dsp.bln(length, 1000, 6000) ])
+
+    s = dsp.fill(s, length, silence=True)
+
+    return dsp.taper(s, 40)
 
 def makeStab(length, i):
     chord = tune.fromdegrees([1,4,5,8], octave=3, root='e')
@@ -68,6 +85,20 @@ def makeStab(length, i):
     stab = dsp.fill(stab, length, silence=True)
 
     return stab
+
+def splitSeg(seg):
+    subseg = []
+    for s in seg:
+        if dsp.rand() > 0.5:
+            hs = s / 2
+            rs = s - hs
+            subseg += [ hs, rs ]
+        else:
+            subseg += [ s ]
+
+    assert sum(subseg) == sum(seg)
+
+    return subseg
 
 out = ''
 changeindex = 0
@@ -88,19 +119,19 @@ for segi, seg in enumerate(segs):
     num_pulses = dsp.randint(1, bar_length / 2)
     pattern = dsp.eu(bar_length, num_pulses)
     pattern = dsp.rotate(pattern, dsp.randint(1,3))
-
-    subseg = []
-    for s in seg:
-        if dsp.rand() > 0.5:
-            hs = s / 2
-            rs = s - hs
-            subseg += [ hs, rs ]
-        else:
-            subseg += [ s ]
-
-    assert sum(subseg) == sum(seg)
+    subseg = splitSeg(seg)
 
     snares = parseBeat(pattern, subseg, makeSnare)
+
+
+    # hats
+    bar_length = dsp.randint(6, 13)
+    num_pulses = dsp.randint(bar_length / 2, bar_length)
+    pattern = dsp.eu(bar_length, num_pulses)
+    subseg = splitSeg(seg)
+
+    hats = parseBeat(pattern, subseg, makeHat)
+
 
     # stabs
     bar_length = dsp.randint(4, 13)
@@ -121,9 +152,7 @@ for segi, seg in enumerate(segs):
 
         pulses += pulse
 
-    assert dsp.flen(kicks) == dsp.flen(snares) == dsp.flen(stabs) == dsp.flen(pulses)
-
-    section = dsp.mix([ kicks, snares, stabs, pulses ])
+    section = dsp.mix([ kicks, snares, stabs, hats, pulses ])
 
     long_chord = rhodesChord(sum(seg), tune.fromdegrees(changes[changeindex % len(changes)], octave=dsp.randint(2,4), root='e'), dsp.rand(0.6, 0.75))
     long_chord = dsp.fill(long_chord, sum(seg))
