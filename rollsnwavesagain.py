@@ -4,21 +4,22 @@ from hcj import keys, fx, drums
 kick = dsp.read('snds/kick.wav').data
 bigkick = dsp.read('snds/kick606.wav').data
 snare = dsp.read('snds/snare.wav').data
-snare = dsp.amp(snare, 4)
+snare = dsp.amp(snare, 6)
 snare = dsp.env(snare, 'phasor')
 
 snarex = dsp.split(snare, 0, 1)
 
-changes = [
-    [3,6,9],
-    [3,7,9],
-    [3,5,9],
-]
+key = 'a'
+
+hatp =   'xxxx'
+snarep = '..x...x...'
+kickp =  'x...-.....x..x...'
+pulsep = 'x..'
 
 # tempo path
 def tempoPath(nsegs):
-    maxms = dsp.rand(80, 400)
-    minms = maxms / dsp.rand(2, 10)
+    maxms = dsp.rand(100, 400)
+    minms = dsp.rand(1, 100)
     wavetypes = ['hann', 'sine', 'vary']
 
     out = []
@@ -43,7 +44,17 @@ def rhodesChord(length, chord, amp):
 
     return dsp.mix(layers)
 
-def parseBeat(pattern, lengths, callback):
+def parseBeat(pattern):
+    out = []
+    for tick in pattern:
+        if tick == 'x':
+            out += [ 1 ]
+        else:
+            out += [ 0 ]
+
+    return out
+
+def makeBeat(pattern, lengths, callback):
     out = ''
 
     for i, length in enumerate(lengths):
@@ -60,41 +71,60 @@ def parseBeat(pattern, lengths, callback):
     return out
 
 def makeHat(length, i):
-    h = dsp.bln(length / 4, 8000, 12000)
+    h = dsp.bln(length / 4, dsp.rand(6000, 8000), dsp.rand(9000, 16000))
+    h = dsp.amp(h, dsp.rand(0.5, 1))
     h = dsp.env(h, 'phasor')
     h = dsp.fill(h, length, silence=True)
 
     return h
 
 def makeKick(length, i):
-    return dsp.taper(dsp.fill(bigkick, length, silence=True), 40)
+    return dsp.taper(dsp.fill(dsp.mix([ bigkick, kick ]), length, silence=True), 40)
 
 def makeSnare(length, i):
-    s = dsp.transpose(snare, dsp.rand(0.9, 1.1))
-    if dsp.rand() > 0.5:
-        s = dsp.mix([s, dsp.bln(length, 1000, 6000) ])
+    burst = dsp.bln(length, dsp.rand(400, 800), dsp.rand(8000, 10000))
+    burst = dsp.env(burst, 'phasor')
+    s = dsp.mix([snare, burst])
+    s = dsp.transpose(s, dsp.rand(0.9, 1.1))
 
     s = dsp.fill(s, length, silence=True)
 
     return dsp.taper(s, 40)
 
 def makeStab(length, i):
-    chord = tune.fromdegrees([1,4,5,8], octave=3, root='e')
+    chord = tune.fromdegrees([ dsp.randchoose([1,4,5,8]) for _ in range(dsp.randint(2,4)) ], octave=3, root=key)
     stab = rhodesChord(length, chord, dsp.rand(0.5, 0.75))
     stab = dsp.taper(stab, 40)
     stab = dsp.fill(stab, length, silence=True)
 
     return stab
 
-def splitSeg(seg):
+def makePulse(length, i):
+    chord = tune.fromdegrees([ dsp.randchoose([1,4,5,8]) for _ in range(dsp.randint(2,4)) ], octave=2, root=key)
+    pulse = rhodesChord(length, chord, dsp.rand(0.5, 0.75)) 
+    #pulse = dsp.mix([ pulse, kick ])
+    pulse = dsp.taper(pulse, 40)
+    pulse = dsp.amp(pulse, dsp.rand(0.9, 1.5))
+    pulse = dsp.fill(pulse, length, silence=True)
+
+    return pulse
+
+
+def splitSeg(seg, size=2, vary=False):
+    def split(s, size):
+        hs = s / size
+        rs = s - hs
+        return [ hs, rs ]
+
     subseg = []
     for s in seg:
-        if dsp.rand() > 0.5:
-            hs = s / 2
-            rs = s - hs
-            subseg += [ hs, rs ]
+        if vary:
+            if dsp.rand() > 0.5:
+                subseg += split(s, size)
+            else:
+                subseg += [ s ]
         else:
-            subseg += [ s ]
+            subseg += split(s, size)
 
     assert sum(subseg) == sum(seg)
 
@@ -102,35 +132,24 @@ def splitSeg(seg):
 
 out = ''
 changeindex = 0
-segs = tempoPath(5)
+segs = tempoPath(30)
 
 for segi, seg in enumerate(segs): 
     print 'Rendering section %s' % (segi + 1)
 
     # kicks
-    bar_length = dsp.randint(4, 13)
-    num_pulses = dsp.randint(1, bar_length / 2)
-    pattern = dsp.eu(bar_length, num_pulses)
-
-    kicks = parseBeat(pattern, seg, makeKick)
+    pattern = parseBeat(kickp)
+    kicks = makeBeat(pattern, seg, makeKick)
 
     # snares
-    bar_length = dsp.randint(6, 13)
-    num_pulses = dsp.randint(1, bar_length / 2)
-    pattern = dsp.eu(bar_length, num_pulses)
-    pattern = dsp.rotate(pattern, dsp.randint(1,3))
-    subseg = splitSeg(seg)
-
-    snares = parseBeat(pattern, subseg, makeSnare)
-
+    pattern = parseBeat(snarep)
+    subseg = splitSeg(seg, 2)
+    snares = makeBeat(pattern, subseg, makeSnare)
 
     # hats
-    bar_length = dsp.randint(6, 13)
-    num_pulses = dsp.randint(bar_length / 2, bar_length)
-    pattern = dsp.eu(bar_length, num_pulses)
-    subseg = splitSeg(seg)
-
-    hats = parseBeat(pattern, subseg, makeHat)
+    pattern = parseBeat(hatp)
+    subseg = splitSeg(seg, 4)
+    hats = makeBeat(pattern, subseg, makeHat)
 
 
     # stabs
@@ -138,37 +157,33 @@ for segi, seg in enumerate(segs):
     num_pulses = dsp.randint(1, bar_length)
     pattern = dsp.eu(bar_length, num_pulses)
     pattern = dsp.rotate(pattern, vary=True)
+    subseg = splitSeg(seg, 3)
 
-    stabs = parseBeat(pattern, seg, makeStab)
+    stabs = makeBeat(pattern, subseg, makeStab)
     
     # pulses
-    pulses = ''
-    for i, length in enumerate(seg):
-        chord = tune.fromdegrees([1,4,5,8], octave=2, root='e')
-        pulse = rhodesChord(length, chord, dsp.rand(0.5, 0.75)) 
-        pulse = dsp.mix([ pulse, kick ])
-        pulse = dsp.taper(pulse, 40)
-        pulse = dsp.fill(pulse, length, silence=True)
-
-        pulses += pulse
+    pattern = parseBeat(pulsep)
+    pulses = makeBeat(pattern, seg, makePulse)
 
     section = dsp.mix([ kicks, snares, stabs, hats, pulses ])
 
-    long_chord = rhodesChord(sum(seg), tune.fromdegrees(changes[changeindex % len(changes)], octave=dsp.randint(2,4), root='e'), dsp.rand(0.6, 0.75))
+    chord = [ dsp.randint(1, 9) for _ in range(dsp.randint(2,4)) ]
+    long_chord = rhodesChord(sum(seg), tune.fromdegrees(chord, octave=dsp.randint(2,4), root=key), dsp.rand(0.6, 0.75))
     long_chord = dsp.fill(long_chord, sum(seg))
 
-    """
-    numbeats = len(seg)
-    glitch_chord = rhodesChord(sum(seg), tune.fromdegrees(changes[changeindex % len(changes)], octave=3, root='e'), dsp.rand(0.6, 0.75))
-    glitch_chord = dsp.split(glitch_chord, dsp.flen(section) / numbeats)
-    glitch_chord = [ dsp.amp(dsp.alias(gc), dsp.rand(0.5, 2)) for gc in glitch_chord ]
-    glitch_chord = dsp.randshuffle(glitch_chord)
-    glitch_chord = ''.join(glitch_chord)
-    """
+    def makeGlitch(length, i):
+        g = dsp.cut(long_chord, dsp.randint(0, dsp.flen(long_chord) - length), length)
+        g = dsp.alias(g)
+        g = dsp.fill(g, length)
+
+        return g
+
+    subseg = splitSeg(seg, 2)
+    glitches = makeBeat([1,1], subseg, makeGlitch)
 
     changeindex = changeindex + 1
 
-    section = dsp.mix([ section, long_chord ])
+    section = dsp.mix([ section, long_chord, glitches ])
 
     out += section
 
